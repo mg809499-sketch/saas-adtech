@@ -1,0 +1,13 @@
+# Gitleaks: bloquea secretos en commits (usar con pre-commit o CI).
+[allowlist]
+paths = ['''pnpm-lock\.yaml$''', '''package-lock\.json$''']
+
+[[rules]]
+id = "growup-jwt"
+description = "Posible JWT en código"
+regex = '''eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'''
+
+[[rules]]
+id = "growup-bold-secret"
+description = "Posible llave secreta Bold"
+regex = '''xsk_live_[A-Za-z0-9]+'''

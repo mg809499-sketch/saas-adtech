@@ -1,0 +1,403 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  MERCHANT
+  ADMIN
+}
+
+enum ProductStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  FAILED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  PSE
+  CARD
+  NEQUI
+}
+
+enum AttemptStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Tenant {
+  id               String        @id @default(cuid())
+  name             String
+  slug             String        @unique
+  // Tienda propia del comerciante
+  storeName        String?
+  storeSlug        String?       @unique
+  logoUrl          String?
+  ownerId          String?
+  // Dominio propio verificado por TXT
+  customDomain     String?
+  domainStatus     String        @default("UNVERIFIED")
+  domainToken      String?
+  domainVerifiedAt DateTime?
+  // Personalización del sitio (whitelist en DTO)
+  theme            Json?
+  seo              Json?
+  // Secretos de pasarelas: SOLO cifrados AES-256-GCM, jamás en claro.
+  boldPubEnc       String?
+  boldSecEnc       String?
+  metaTokenEnc     String?
+  metaBusinessId   String?
+  metaAdAccount    String?
+  metaPixel        String?
+  template         String?
+  users            User[]
+  products         Product[]
+  orders           Order[]
+  campaigns        AdCampaign[]
+  pages            StorePage[]
+  subscription     Subscription?
+  categories       Category[]
+  sizeGuides       SizeGuide[]
+  createdAt        DateTime      @default(now())
+}
+
+enum SubStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+model Plan {
+  slug            String         @id
+  name            String
+  priceMonthlyUsd Int
+  priceMonthlyCop Int            @default(0) // precio nativo en COP (fuente de cobro y tarjetas)
+  imageUrl        String?
+  maxStores       Int
+  maxProducts     Int // -1 = ilimitado
+  features        Json?
+  subscriptions   Subscription[]
+}
+
+// Categorías con subcategorías (parentId) por tienda.
+model Category {
+  id        String    @id @default(cuid())
+  tenantId  String
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  parentId  String?
+  parent    Category? @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Category[] @relation("CategoryTree")
+  order     Int       @default(0)
+  products  Product[]
+  createdAt DateTime  @default(now())
+
+  @@unique([tenantId, parentId, name])
+  @@index([tenantId])
+}
+
+// Variantes por producto: color, talla, SKU propio, delta de precio y stock.
+model ProductVariant {
+  id         String   @id @default(cuid())
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  color      String?
+  size       String?
+  sku        String?
+  priceDelta Int      @default(0)
+  stock      Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([productId])
+}
+
+// Guías de tallas reutilizables (ropa, calzado o personalizada).
+model SizeGuide {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  kind      String   @default("custom") // ropa | calzado | custom
+  table     Json
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model Subscription {
+  id               String              @id @default(cuid())
+  tenantId         String              @unique
+  tenant           Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  planSlug         String
+  plan             Plan                @relation(fields: [planSlug], references: [slug])
+  status           SubStatus           @default(TRIALING)
+  currentPeriodEnd DateTime?
+  events           SubscriptionEvent[]
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+}
+
+model SubscriptionEvent {
+  id             String       @id @default(cuid())
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  type           String
+  meta           Json?
+  createdAt      DateTime     @default(now())
+
+  @@index([subscriptionId])
+}
+
+model User {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email        String
+  name         String?
+  passwordHash String
+  role         Role     @default(CUSTOMER)
+  orders       Order[]
+  createdAt    DateTime @default(now())
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+}
+
+model Product {
+  id             String        @id @default(cuid())
+  tenantId       String
+  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name           String
+  slug           String
+  sku            String
+  description    String?
+  price          Int
+  compareAtPrice Int?
+  stock          Int           @default(0)
+  category       String        @default("General")
+  categoryId     String?
+  categoryRef    Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  status         ProductStatus @default(PUBLISHED)
+  imageUrl       String?
+  images         Json?
+  variants       ProductVariant[]
+  items          OrderItem[]
+  campaigns      AdCampaign[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([tenantId, slug])
+  @@unique([tenantId, sku])
+  @@index([tenantId])
+}
+
+model Order {
+  id             String           @id @default(cuid())
+  tenantId       String
+  tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status         OrderStatus      @default(PENDING_PAYMENT)
+  subtotal       Int
+  shippingCost   Int              @default(0)
+  total          Int
+  currency       String           @default("COP")
+  paymentMethod  PaymentMethod
+  idempotencyKey String
+  boldTxId       String?
+  reservedUntil  DateTime?
+  shippingEnc    String
+  items          OrderItem[]
+  attempts       PaymentAttempt[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId])
+  @@index([userId])
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  name      String
+  unitPrice Int
+  qty       Int
+  variantId String?
+  variantLabel String?
+
+  @@index([orderId])
+}
+
+model PaymentAttempt {
+  id        String        @id @default(cuid())
+  orderId   String
+  order     Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  method    PaymentMethod
+  status    AttemptStatus @default(PENDING)
+  boldTxId  String
+  last4     String?
+  createdAt DateTime      @default(now())
+
+  @@index([orderId])
+}
+
+model WebhookEvent {
+  eventId   String   @id
+  type      String
+  orderId   String?
+  createdAt DateTime @default(now())
+}
+
+enum AdStatus {
+  DRAFT
+  PENDING_REVIEW
+  ACTIVE
+  PAUSED
+}
+
+model AdCampaign {
+  id             String   @id @default(cuid())
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productId      String?
+  product        Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  name           String
+  dailyBudget    Int
+  currency       String   @default("USD")
+  targeting      Json?
+  metaCampaignId String?
+  metaAdsetId    String?
+  metaAdId       String?
+  status         AdStatus @default(DRAFT)
+  reviewNote     String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+// Ajustes globales del negocio GrowUp (perfil, trial, comisiones, mantenimiento).
+model SiteSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+// Auditoría de acciones de plataforma (quién hizo qué, sobre qué y cuándo).
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String
+  action    String
+  target    String?
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([actorId])
+  @@index([action])
+}
+
+enum AffStatus {
+  PENDING
+  ACTIVE
+  REVOKED
+}
+
+model AffiliateAgreement {
+  id             String    @id @default(cuid())
+  sourceTenantId String
+  targetTenantId String
+  commissionPct  Int
+  status         AffStatus @default(PENDING)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([sourceTenantId, targetTenantId])
+  @@index([sourceTenantId])
+  @@index([targetTenantId])
+}
+
+model DomainCheck {
+  id        String   @id @default(cuid())
+  tenantId  String
+  domain    String
+  token     String
+  status    String   @default("PENDING")
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+}
+
+enum ProvisionStatus {
+  PENDING
+  ACTIVE
+  FAILED
+}
+
+// Alta idempotente de tiendas: un Idempotency-Key = un intento trazable con
+// estado, plantilla elegida y error de forense. Permite reintento seguro.
+model StoreProvision {
+  idempotencyKey String          @id
+  ownerId        String
+  tenantId       String?
+  template       String          @default("minimal")
+  status         ProvisionStatus @default(PENDING)
+  error          String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([ownerId])
+}
+
+enum PageStatus {
+  DRAFT
+  PUBLISHED
+}
+
+// Constructor visual: páginas y bloques por tienda (borrador vs publicado).
+model StorePage {
+  id        String       @id @default(cuid())
+  tenantId  String
+  tenant    Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  slug      String // home | producto | checkout | confirmacion | <libre>
+  title     String
+  status    PageStatus   @default(PUBLISHED)
+  blocks    StoreBlock[]
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+}
+
+model StoreBlock {
+  id        String    @id @default(cuid())
+  pageId    String
+  page      StorePage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  type      String // hero | texto | imagen | productos | coleccion | testimonios | faq | footer | html
+  props     Json
+  order     Int       @default(0)
+  visible   Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([pageId])
+}

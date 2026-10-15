@@ -1,0 +1,36 @@
+# GrowUp Store — Edge Caddy con On-Demand TLS para *.growupstore.app
+# Requisito DNS (una sola vez en el proveedor):
+#   A  *.growupstore.app  →  <IP-del-VPS-edge>
+#   A  growupstore.app    →  <IP-del-VPS-edge>
+# Sin ese wildcard, https://<slug>.growupstore.app da NXDOMAIN.
+#
+# Uso:
+#   INTERNAL_EDGE_SECRET=<secreto> caddy run --config Caddyfile --adapter caddyfile
+# El API debe exponer /api/v1/internal/caddy-ask solo en red privada.
+
+{
+	on_demand_tls {
+		# El edge pregunta al API antes de emitir cada certificado.
+		ask http://api:3002/api/v1/internal/caddy-ask
+		interval 2m
+		burst 10
+	}
+}
+
+# Tiendas por subdominio: https://<slug>.growupstore.app
+https://*.growupstore.app {
+	tls {
+		on_demand
+	}
+	# La web resuelve por path /s/<slug>; el edge solo reenvía el Host
+	# para que el API pueda autorizar por Host cuando lo necesite.
+	reverse_proxy web:3001
+}
+
+# Dominios propios verificados (TXT) — mismo ask, mismo proxy.
+https:// {
+	tls {
+		on_demand
+	}
+	reverse_proxy web:3001
+}

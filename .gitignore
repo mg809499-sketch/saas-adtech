@@ -1,0 +1,34 @@
+# Secretos y entorno local (JAMÁS commitear)
+.env
+.env.*
+!.env.example
+!.env.*.example
+.vercel/
+
+# Dependencias y build
+node_modules/
+dist/
+build/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+
+# Logs y temporales
+logs/
+*.log
+npm-debug.log*
+.playwright-mcp/
+.taste-skill/
+reportes/
+strix_runs/
+.pytest_cache/
+.ruff_cache/
+.opencode/
+.turbo/
+
+# OS / editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,27 @@
+# Fly.io free: auto-stop (despierta con tráfico) + región cerca de Supabase us-west-2.
+# Uso: fly launch (reutiliza este archivo) → fly secrets set ... → fly deploy.
+app = "growup-api"
+primary_region = "lax"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[http_service.checks]]
+  grace_period = "30s"
+  interval = "60s"
+  method = "GET"
+  path = "/api/v1/billing/plans"
+  timeout = "10s"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
